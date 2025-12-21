@@ -12,6 +12,8 @@ what was learned:
 - usage of namedtuple for structured data
 - decorators for logging (save)
 - basic json serialization and deserialization
+- basic CRUD operations in a command-line app
+- basic git operations for version control (init, add ., commit, push, etc)
 
 future improvements:
 - ORMs for data persistence (SQLAlchemy)
@@ -27,7 +29,7 @@ from tabulate import tabulate
 
 # data, lists of tuples
 table = [] # table of pending tasks
-done = []  # list of finished tasks
+done = []  # list of completed tasks
 
 next_id = 1000
 
@@ -37,7 +39,7 @@ Task = namedtuple(
     "id owner title description priority created_at uri status comment finished_at",
     defaults=("IN PROGRESS", None, None)
 )
-Command = namedtuple("Command", "exit add update view drop entry view_done")
+Command = namedtuple("Command", "add update view drop entry exit")
 Entry = namedtuple("Entry", "date entries")
 
 # utility functions
@@ -73,6 +75,46 @@ def save(func):
         return result
     return wrapper
 
+   
+def view_tasks():
+    """
+    view all tasks in the table
+    """
+    options = {
+        "ALL": lambda: tprint_tasks(table + done),
+        "IN PROGRESS": lambda: tprint_tasks(table),
+        "DONE": lambda: tprint_tasks(done),
+        "SUCCESS": lambda: tprint_tasks(filter_tasks("SUCCESS")),
+        "FAILED": lambda: tprint_tasks(filter_tasks("FAILED"))
+    }
+    
+    while True:
+        status_filter = input("Enter status filter (ALL, IN PROGRESS, DONE, SUCCESS, FAILED) or press Enter for ALL: ").strip().upper() or "ALL"
+        if status_filter.upper() in ["ALL", "IN PROGRESS", "DONE", "SUCCESS", "FAILED"]:
+            break
+        print("Invalid status filter. Please try again.")
+    
+    options[status_filter]()
+
+def filter_tasks(status, list_of_tasks=done):
+    """
+    simple function to filter tasks by status.
+    may use lambda.
+    """
+    return [task for task in list_of_tasks if task.status == status]
+
+def tprint_tasks(data):
+    """
+    print tasks in a table
+    """
+    if not data:
+        print("No tasks to display.")
+        return
+    
+    print(tabulate([(t.id, t.owner, t.title, t.priority, t.created_at, t.status) for t in data], 
+                   headers=["ID", "Owner", "Title", "Priority", "Created At", "Status"]))
+
+
 # CRUD operations
 @save
 def add_task():
@@ -104,12 +146,13 @@ def entry_task(id):
     """
     an Activities performed during the task 
     """
-    activity = input("Enter the new details for the task:\n")
-    update_at = datetime.now()
-    uri = find_task(id).uri
+    uri = find_task(id, table + done).uri
     if not uri:
         print("Task not found.")
         return None
+    
+    activity = input("Enter the new details for the task:\n")
+    update_at = datetime.now()    
     entry = Entry(update_at, activity)
     print("Task updated successfully!")
     return (uri, entry)
@@ -137,24 +180,13 @@ def update_task(id):
     print("Task updated successfully!")
     return (uri, updated_task)
 
-   
-def view_tasks():
-    """
-    view all tasks (pending) in the table
-    """
-    if not table:
-        print("No tasks available.")
-        return
-
-    for task in table:
-        print(tabulate([t._asdict() for t in table], headers="keys"))
 
 @save
 def finish_task(id):
     """
     finish a task and move it to done list
     """
-    task = find_task(id)
+    task = find_task(id, table)
     if not task:
         print("Task not found.")
         return None
@@ -177,17 +209,6 @@ def finish_task(id):
     print("Task finished successfully!")
     return (task.uri, task)
 
-def view_done():
-    """
-    view all finished tasks
-    """
-    if not done:
-        print("No finished tasks available.")
-        return
-    
-    for task in done:
-        print(tabulate([t._asdict() for t in done], headers="keys"))
-
 def main():
     """
     Main function to run the TODO list application.
@@ -197,13 +218,14 @@ def main():
                   update=lambda: update_task(int(input("Enter task ID to update: "))), 
                   view=view_tasks, 
                   drop=lambda: finish_task(int(input("Enter task ID to finish: "))), 
-                  entry=lambda: entry_task(int(input("Enter task ID for entry: "))), 
-                  view_done=view_done
+                  entry=lambda: entry_task(int(input("Enter task ID for entry: ")))
                   )
     
     while not command.exit:
         print("\n" + "="*20)
-        print("TODO LIST - Options: add, update, view, drop, view_done, exit")
+        print("TODO LIST - Options: add, update, view, drop, entry")
+        print("="*20)
+        print("Enter 'exit' to exit")
         action = input("Select action: ").strip().lower()
         if action == "exit":
             command = command._replace(exit=True)
