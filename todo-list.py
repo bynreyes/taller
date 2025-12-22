@@ -21,6 +21,8 @@ yaml vs json:
 
 future improvements:
 - ORMs for data persistence (SQLAlchemy)
+- type hints for better code clarity
+- maybe a GUI using Tkinter
 """
 from collections import namedtuple
 from functools import wraps
@@ -137,7 +139,7 @@ def tprint_tasks(data):
                    headers=["ID", "Owner", "Title", "Priority", "Created At", "Status"]))
 
 def view_history(id):
-    task = find_task(id, table + done)
+    task = find_task(id, table) or find_task(id, done)
     if not task:
         print("Task not found.")
         return
@@ -206,7 +208,7 @@ def entry_task(id):
     an Activities performed during the task 
     """
     
-    task = find_task(id, table + done)
+    task = find_task(id, table)
     if not task:
         print("Task not found.")
         return None
