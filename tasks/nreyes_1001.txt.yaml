@@ -1,0 +1,36 @@
+- timestamp: '2025-12-21T20:55:09.699473'
+  type: Task
+  data:
+    id: 1001
+    owner: nreyes
+    title: learn GIT
+    description: primeros pasos en git
+    priority: HIGH
+    created_at: 2025-12-21 20:55:09.699473
+    uri: nreyes_1001.txt
+    status: IN PROGRESS
+    comment: null
+    finished_at: null
+- timestamp: '2025-12-21T20:56:24.732048'
+  type: Entry
+  data:
+    date: 2025-12-21 20:56:24.693756
+    entries: investigando sobre los comandos basicos de git
+- timestamp: '2025-12-21T20:57:53.757294'
+  type: Entry
+  data:
+    date: 2025-12-21 20:57:53.754914
+    entries: git init, git add ., git commit, git push
+- timestamp: '2025-12-21T20:58:57.892255'
+  type: Task
+  data:
+    id: 1001
+    owner: nreyes
+    title: learn GIT
+    description: primeros pasos en git
+    priority: HIGH
+    created_at: 2025-12-21 20:55:09.699473
+    uri: nreyes_1001.txt
+    status: SUCCESS
+    comment: aprendizaje sastifactorio
+    finished_at: 2025-12-21 20:58:57.888555
