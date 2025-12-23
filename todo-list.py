@@ -54,11 +54,15 @@ class Repository:
     def __init__(self, folder="tasks"):
         self.folder = folder
         os.makedirs(folder, exist_ok=True)
-    
+
     def _get_path(self, uri):
         return os.path.join(self.folder, f"{uri}.yaml")
-
-    def _read_history(self, path):
+    
+    def load(self, uri):
+        """
+        load history from YAML file
+        """
+        path = self._get_path(uri)
         if not os.path.exists(path):
             return []
         
@@ -66,8 +70,14 @@ class Repository:
             return yaml.safe_load(f) or []
     
     def push(self, uri, data):
-        path = self._get_path(uri)        
-        history = self._read_history(path)
+        """
+        push new data to YAML file
+        
+        :param uri: URI of the task
+        :param data: data to be saved
+        """
+        path = self._get_path(uri)
+        history = self.load(uri)
         history.append({
             'timestamp': datetime.now().isoformat(),
             'type': type(data).__name__,
@@ -76,12 +86,32 @@ class Repository:
 
         with open(path, 'w', encoding='utf-8') as f:
             yaml.dump(history, f, allow_unicode=True, sort_keys=False)
-    
-    def load(self, uri: str) -> list:
-        """Carga historial desde YAML"""
-        return self._read_history(self._get_path(uri))
 
 repo = Repository()
+
+# decorators
+def tabulate_print(func):
+    """
+    Decorator to print data on tabulate format
+    Handles both lists of Task namedtuples and lists of dictionaries
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        data = func(*args, **kwargs)
+        if not data:
+            print("No tasks to display.")
+            return data
+
+        # Check if it's a list of dictionaries (from history)
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            print(tabulate(data, headers='keys'))
+        # Check if it's a list of Task namedtuples
+        elif isinstance(data, list) and len(data) > 0 and hasattr(data[0], 'id'):
+            print(tabulate([(t.id, t.owner, t.title, t.priority, t.created_at, t.status) for t in data], 
+                           headers=["ID", "Owner", "Title", "Priority", "Created At", "Status"]))
+        
+        return data
+    return wrapper
 
 def save(func):
     """
@@ -101,16 +131,17 @@ def find_task(id, list_of_tasks=table):
     result = next((task for task in list_of_tasks if task.id == id), None)
     return result
 
+@tabulate_print
 def view_tasks():
     """
     view all tasks in the table
     """
     options = {
-        "ALL": lambda: tprint_tasks(table + done),
-        "IN PROGRESS": lambda: tprint_tasks(table),
-        "DONE": lambda: tprint_tasks(done),
-        "SUCCESS": lambda: tprint_tasks(filter_tasks("SUCCESS")),
-        "FAILED": lambda: tprint_tasks(filter_tasks("FAILED"))
+        "ALL": lambda: [*table, *done],
+        "IN PROGRESS": lambda: table,
+        "DONE": lambda: done,
+        "SUCCESS": lambda: filter_tasks("SUCCESS"),
+        "FAILED": lambda: filter_tasks("FAILED")
     }
     
     while True:
@@ -119,7 +150,7 @@ def view_tasks():
             break
         print("Invalid status filter. Please try again.")
     
-    options[status_filter]()
+    return options[status_filter]()
 
 def filter_tasks(status, list_of_tasks=done):
     """
@@ -127,18 +158,12 @@ def filter_tasks(status, list_of_tasks=done):
     """
     return [task for task in list_of_tasks if task.status == status]
 
-def tprint_tasks(data):
-    """
-    print tasks in tabular format
-    """
-    if not data:
-        print("No tasks to display.")
-        return
-    
-    print(tabulate([(t.id, t.owner, t.title, t.priority, t.created_at, t.status) for t in data], 
-                   headers=["ID", "Owner", "Title", "Priority", "Created At", "Status"]))
-
+@tabulate_print
 def view_history(id):
+    """
+    view the history of a specific task (changes, etc.)
+    Returns a list of dictionaries with history entries for tabulate
+    """
     task = find_task(id, table) or find_task(id, done)
     if not task:
         print("Task not found.")
@@ -157,26 +182,33 @@ def view_history(id):
     print(f"TASK #{id}: {title} | {status}")
     print('='*60)
     
+    # Convert history to a list of dictionaries for tabulation
+    history_data = []
     for record in history:
         ts = record['timestamp']
         rtype = record['type']
         data = record['data']
         
         if rtype == 'Task':
-            print(f"\n🆕 CREATED [{ts}]")
-            print(f"   {data['title']} - {data['description']}")
-            print(f"   Priority: {data['priority']}")
+            history_data.append({
+                'Timestamp': ts,
+                'Type': 'CREATED',
+                'Title': data['title'],
+                'Description': data['description'],
+                'Priority': data['priority']
+            })
         
         elif rtype == 'Entry':
-            print(f"\n📝 ENTRY [{ts}]")
-            print(f"   {data['text']}")
-        
-        elif rtype == 'Result':
-            print(f"\n✅ FINISHED [{ts}]")
-            print(f"   Status: {data['status']}")
-            print(f"   Comment: {data['comment']}")
+            history_data.append({
+                'Timestamp': ts,
+                'Type': 'ENTRY',
+                'Title': '-',
+                'Description': data['entries'],
+                'Priority': '-'
+            })
     
     print('='*60)
+    return history_data
 
 # CRUD  basic operations
 @save
