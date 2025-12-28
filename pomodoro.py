@@ -12,27 +12,30 @@ from plyer import notification
 
 # data structure
 Lapse = namedtuple('Lapse', 'duration message name')
+Cycle = namedtuple('Cycle', 'work pause name')
 
 # constantes
-WORK, SHORT_TIME, LONG_TIME, DISPLAY = (40*60, 5*60, 20*60, 10)
+# Options to keep in mind here are: @dataclass, namedtuple, enum type
+# def set_values(*args):
+#     ...
+WORK, SHORT_TIME, LONG_TIME, DISPLAY, CYCLES = (20, 5, 20, 5, 4)
 
-# set vakues
-work_duration = Lapse(WORK, 'its work time', 'work')
-break_duration = Lapse(SHORT_TIME, 'its break time', 'break')
-long_break_duration = Lapse(LONG_TIME, 'mid time', 'long break')
-short_cycle = [work_duration, break_duration]
-long_cycle = [work_duration, long_break_duration]
-
+# set values
+work_duration = Lapse(WORK, 'tlabaja, tienes que tlabaja!!', 'work time')
+break_duration = Lapse(SHORT_TIME, '5 minutos de chisme', 'break')
+long_break_duration = Lapse(LONG_TIME, 'descansa viejo', 'long break')
+short_cycle = Cycle(work_duration, break_duration, 'short cycle')
+long_cycle = Cycle(work_duration, long_break_duration, 'long cycle')
 
 def pomodoro():
-    c = 0
+    step = 0
     while True:
-        c += 1
-        lap = long_cycle if c % 4 == 0 else short_cycle
-        print(c)
-        for lapse in lap:
+        step += 1
+        lap = long_cycle if step % CYCLES == 0 else short_cycle
+        print(f'{step}  --> {lap.name}')
+        for lapse in (lap.work, lap.pause):
             notification.notify(
-                title = f"pomodoro sesion {lapse.name}",
+                title = f"iniciando pomodoro sesion {lapse.name}",
                 message=f"{lapse.message}" ,
                 # displaying time
                 timeout=DISPLAY 
