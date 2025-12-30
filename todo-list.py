@@ -1,336 +1,390 @@
 """
-version: 1.0
+version: 0.2
 name: todo-list.py
 author: nreyes
 
 description:
-TODO List Application
+TODO List Application 
 A simple command-line TODO list application to manage tasks.
-by nreyes
 
 what was learned:
 - usage of namedtuple for structured data
+- basic logging for error handling
 - decorators for save functionality
 - basic yml serialization and deserialization
+- basic .csv handling for data persistence
 - basic CRUD operations in a command-line app
-- basic git operations for version control (init, add ., commit, push, etc)
-
-yaml vs json:
-- YAML is more human-readable and supports comments
-- JSON is more widely used in web applications and APIs
-
-future improvements:
-- ORMs for data persistence (SQLAlchemy)
-- type hints for better code clarity
-- maybe a GUI using Tkinter
 """
-from collections import namedtuple
+
+from collections import namedtuple, defaultdict
 from functools import wraps
-import os
-import yaml
 from datetime import datetime
-import sys
 from tabulate import tabulate
+import logging
+import os
+import csv
+import yaml
+import sys
 
-# data
-table = [] # table of pending tasks
-done = []  # list of completed tasks
-next_id = 1000
+# Configurar logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# data structures
+# Estructuras de datos
 Task = namedtuple(
     "Task",
-    "id owner title description priority created_at uri status comment finished_at",
+    "id owner title description priority uri status created_at finished_at",
     defaults=("IN PROGRESS", None, None)
 )
-# Just for fun, since the most pythonic solution is a dictionary.
-Command = namedtuple("Command", "add update view history drop entry exit")
-Entry = namedtuple("Entry", "date entries")
+Entry = namedtuple("Entry", "date action activity")
 
-class Repository:
-    """
-    Abstract class to handle YAML persistence
-    """
-    def __init__(self, folder="tasks"):
-        self.folder = folder
-        os.makedirs(folder, exist_ok=True)
+# Variables globales
+FOLDER = "tasks"
+dict_tasks = {}
+history = defaultdict(list)
+next_id = 1000
 
-    def _get_path(self, uri):
-        return os.path.join(self.folder, f"{uri}.yaml")
-    
-    def load(self, uri):
-        """
-        load history from YAML file
-        """
-        path = self._get_path(uri)
-        if not os.path.exists(path):
-            return []
-        
-        with open(path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or []
-    
-    def push(self, uri, data):
-        """
-        push new data to YAML file
-        
-        :param uri: URI of the task
-        :param data: data to be saved
-        """
-        path = self._get_path(uri)
-        history = self.load(uri)
-        history.append({
-            'timestamp': datetime.now().isoformat(),
-            'type': type(data).__name__,
-            'data': data._asdict() if hasattr(data, '_asdict') else vars(data)
-        })
+# Utilidades
+def get_date():
+    return datetime.now().isoformat()
 
-        with open(path, 'w', encoding='utf-8') as f:
-            yaml.dump(history, f, allow_unicode=True, sort_keys=False)
-
-repo = Repository()
-
-# decorators
-def tabulate_print(func):
-    """
-    Decorator to print data on tabulate format
-    Handles both lists of Task namedtuples and lists of dictionaries
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        data = func(*args, **kwargs)
-        if not data:
-            print("No tasks to display.")
-            return data
-
-        # Check if it's a list of dictionaries (from history)
-        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-            print(tabulate(data, headers='keys'))
-        # Check if it's a list of Task namedtuples
-        elif isinstance(data, list) and len(data) > 0 and hasattr(data[0], 'id'):
-            print(tabulate([(t.id, t.owner, t.title, t.priority, t.created_at, t.status) for t in data], 
-                           headers=["ID", "Owner", "Title", "Priority", "Created At", "Status"]))
-        
-        return data
-    return wrapper
-
-def save(func):
-    """
-    Decorator to save task changes to YAML repository
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        result = func(*args, **kwargs)
-        if isinstance(result, tuple) and len(result) == 2:
-            uri, data = result
-            repo.push(uri, data)        
-        return result
-    return wrapper
-
-# utility functions
-def find_task(id, list_of_tasks=table):    
-    result = next((task for task in list_of_tasks if task.id == id), None)
-    return result
-
-@tabulate_print
-def view_tasks():
-    """
-    view all tasks in the table
-    """
-    options = {
-        "ALL": lambda: [*table, *done],
-        "IN PROGRESS": lambda: table,
-        "DONE": lambda: done,
-        "SUCCESS": lambda: filter_tasks("SUCCESS"),
-        "FAILED": lambda: filter_tasks("FAILED")
-    }
-    
-    while True:
-        status_filter = input("Enter status filter (ALL, IN PROGRESS, DONE, SUCCESS, FAILED) or press Enter for ALL: ").strip().upper() or "ALL"
-        if status_filter.upper() in ["ALL", "IN PROGRESS", "DONE", "SUCCESS", "FAILED"]:
-            break
-        print("Invalid status filter. Please try again.")
-    
-    return options[status_filter]()
-
-def filter_tasks(status, list_of_tasks=done):
-    """
-    simple function to filter tasks by status.
-    """
-    return [task for task in list_of_tasks if task.status == status]
-
-@tabulate_print
-def view_history(id):
-    """
-    view the history of a specific task (changes, etc.)
-    Returns a list of dictionaries with history entries for tabulate
-    """
-    task = find_task(id, table) or find_task(id, done)
+def find_task(task_id):
+    """Busca una tarea por ID"""
+    task = dict_tasks.get(int(task_id))
     if not task:
-        print("Task not found.")
-        return
-    
-    uri = task.uri
-    title = task.title
-    status = task.status
-    
-    history = repo.load(uri)
-    if not history:
-        print("📭 No history found")
-        return
-    
-    print(f"\n{'='*60}")
-    print(f"TASK #{id}: {title} | {status}")
-    print('='*60)
-    
-    # Convert history to a list of dictionaries for tabulation
-    history_data = []
-    for record in history:
-        ts = record['timestamp']
-        rtype = record['type']
-        data = record['data']
-        
-        if rtype == 'Task':
-            history_data.append({
-                'Timestamp': ts,
-                'Type': 'CREATED',
-                'Title': data['title'],
-                'Description': data['description'],
-                'Priority': data['priority']
-            })
-        
-        elif rtype == 'Entry':
-            history_data.append({
-                'Timestamp': ts,
-                'Type': 'ENTRY',
-                'Title': '-',
-                'Description': data['entries'],
-                'Priority': '-'
-            })
-    
-    print('='*60)
-    return history_data
+        logging.warning(f"Task with ID:{task_id} not found.")
+    return task
 
-# CRUD  basic operations
-@save
-def add_task():
-    """
-    add a new task to the table
-    """
+# Decorador para tabular salida
+def tabulate_print(func):
+    """Decorator to print data in tabulate format"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            data = func(*args, **kwargs)
+            if not data:
+                print("No data to display.")
+                return data
+            
+            # Lista de diccionarios
+            if isinstance(data, list) and isinstance(data[0], dict):
+                print(tabulate(data, headers='keys'))
+            # Lista de namedtuples (Task o Entry)
+            elif isinstance(data, list) and hasattr(data[0], '_asdict'):
+                dicts = [item._asdict() for item in data]
+                print(tabulate(dicts, headers='keys'))
+            else:
+                print(data)
+                
+            return data
+        except Exception as e:
+            logging.error(f"Error displaying data: {e}")
+            return None
+    return wrapper
+
+# Persistencia CSV
+def load_csv():
+    """Carga tareas desde CSV"""
     global next_id
+    file_path = os.path.join(FOLDER, "tasks.csv")
+    tasks = {}
+    
+    if not os.path.exists(file_path):
+        logging.info("No existing CSV found. Starting fresh.")
+        return tasks
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('id') and row.get('title'):
+                    task = Task(
+                        id=int(row['id']),
+                        owner=row['owner'].strip(),
+                        title=row['title'].strip(),
+                        description=row.get('description', '').strip(),
+                        priority=row['priority'].strip().upper(),
+                        uri=row['uri'].strip(),
+                        status=row.get('status', 'IN PROGRESS'),
+                        created_at=row.get('created_at', ''),
+                        finished_at=row.get('finished_at', ''),
+                    )
+                    tasks[task.id] = task
+        
+        # Actualizar next_id
+        if tasks:
+            next_id = max(tasks.keys()) + 1
+            
+        logging.info(f"Loaded {len(tasks)} tasks from CSV")
+    except Exception as e:
+        logging.error(f"Error loading CSV: {e}")
+    
+    return tasks
+
+def save_csv():
+    """Guarda tareas en CSV"""
+    os.makedirs(FOLDER, exist_ok=True)
+    file_path = os.path.join(FOLDER, "tasks.csv")
+    
+    try:
+        with open(file_path, mode='w', newline='', encoding='utf-8') as file:
+            if dict_tasks:
+                fieldnames = Task._fields
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
+                writer.writeheader()
+                for task in dict_tasks.values():
+                    writer.writerow(task._asdict())
+        logging.info(f"Saved {len(dict_tasks)} tasks to CSV")
+    except Exception as e:
+        logging.error(f"Error saving CSV: {e}")
+
+# Persistencia YAML (historial)
+def load_history(task_id):
+    """Carga historial de una tarea desde YAML"""
+    uri = dict_tasks[task_id].uri
+    file_path = os.path.join(FOLDER, f"{uri}.yaml")
+    
+    if not os.path.exists(file_path):
+        return []
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f) or []
+            return [Entry(**item) for item in data]
+    except Exception as e:
+        logging.error(f"Error loading history: {e}")
+        return []
+
+def save_history(task_id):
+    """Guarda historial de una tarea en YAML"""
+    if task_id not in dict_tasks:
+        return
+    
+    os.makedirs(FOLDER, exist_ok=True)
+    uri = dict_tasks[task_id].uri
+    file_path = os.path.join(FOLDER, f"{uri}.yaml")
+    
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            data = [entry._asdict() for entry in history[task_id]]
+            yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+    except Exception as e:
+        logging.error(f"Error saving history: {e}")
+
+# Operaciones CRUD
+def add_task():
+    """Agregar nueva tarea"""
+    global next_id
+    
     owner = input("Enter the owner of the task: ").strip()
     title = input("Enter the title of the task: ").strip()
     description = input("Enter the description of the task: ").strip()
-
-    while True:
-        priority = input("Enter the priority of the task (Low, Medium, High): ").strip().upper()
-        if priority in ['LOW', 'MEDIUM', 'HIGH']:
-            break
-        print("Invalid priority. Please enter Low, Medium, or High.")
-
+    
+    priority_map = {"1": "LOW", "2": "MEDIUM", "3": "HIGH"}
+    print("\nPriority options:")
+    for key, value in priority_map.items():
+        print(f"  {key} --> {value}")
+    
+    priority_choice = input("Select priority (1-3): ").strip()
+    priority = priority_map.get(priority_choice, "LOW")
+    
     uri = f"{owner.replace(' ', '_')}_{next_id}"
-    task = Task(next_id, owner, title, description, priority, created_at=datetime.now(), uri=uri)
-    table.append(task)
+    task = Task(
+        id=next_id,
+        owner=owner,
+        title=title,
+        description=description,
+        priority=priority,
+        uri=uri,
+        status="IN PROGRESS",
+        created_at=get_date(),
+        finished_at=None
+    )
+    
+    dict_tasks[next_id] = task
+    history[next_id].append(Entry(
+        date=get_date(),
+        action='CREATED',
+        activity=f"Task '{title}' created"
+    ))
+    
+    print(f"\n✓ Task {next_id} added successfully!")
     next_id += 1
-    print("Task added successfully!")
-    return (uri, task)
 
-@save
-def entry_task(id):
-    """
-    an Activities performed during the task 
-    """
-    
-    task = find_task(id, table)
+def update_task():
+    """Actualizar tarea existente"""
+    task_id = int(input("Enter task ID to update: "))
+    task = find_task(task_id)
     if not task:
-        print("Task not found.")
-        return None
+        return
     
-    uri = task.uri
-    activity = input("Enter the new details for the task:\n")
-    update_at = datetime.now()    
-    entry = Entry(update_at, activity)
-    print("Task updated successfully!")
-    return (uri, entry)
+    print(f"\nCurrent values (press Enter to keep):")
+    title = input(f"Title [{task.title}]: ").strip() or task.title
+    description = input(f"Description [{task.description}]: ").strip() or task.description
+    owner = input(f"Owner [{task.owner}]: ").strip() or task.owner
+    
+    uri = f"{owner.replace(' ', '_')}_{task_id}"
+    updated_task = task._replace(
+        title=title,
+        description=description,
+        owner=owner,
+        uri=uri
+    )
+    
+    dict_tasks[task_id] = updated_task
+    history[task_id].append(Entry(
+        date=get_date(),
+        action='UPDATED',
+        activity=f"Task updated: {title}"
+    ))
+    
+    print(f"\n✓ Task {task_id} updated successfully!")
 
-@save
-def update_task(id):
-    """
-    update an existing task in the table
-    """
-    task = find_task(id)
-    if not task:
-        print("Task not found.")
-        return None
+def add_entry():
+    """Agregar entrada al historial de una tarea"""
+    task_id = int(input("Enter task ID for entry: "))
+    task = find_task(task_id)
     
-    title = input(f"Enter the new title [{task.title}]: ").strip() or task.title
-    description = input("Enter the new description [{task.description}]: ").strip() or task.description
-    owner = input(f"Enter the new owner [{task.owner}]: ").strip() or task.owner
-    uri = f"{owner.replace(' ', '_')}_{id}.txt"
-    if uri != task.uri and os.path.exists(task.uri):
-        os.rename(task.uri, uri)
-   
-    updated_task = task._replace(title=title, description=description, owner=owner, uri=uri)
-    table.remove(task)
-    table.append(updated_task)
-    print("Task updated successfully!")
-    return (uri, updated_task)
-
-@save
-def finish_task(id):
-    """
-    finish a task and move it to done list
-    """
-    task = find_task(id, table)
     if not task:
-        print("Task not found.")
-        return None
-       
+        return
+    
+    activity = input("Enter activity details:\n").strip()
+    
+    history[task_id].append(Entry(
+        date=get_date(),
+        action='ENTRY',
+        activity=activity
+    ))
+    
+    print(f"\n✓ Entry added to task {task_id}")
+
+def finalize_task():
+    """Finalizar tarea"""
+    task_id = int(input("Enter task ID to finish: "))
+    task = find_task(task_id)
+    
+    if not task:
+        return
+    
+    if task.status in ['SUCCESS', 'FAILED']:
+        print("Task already completed.")
+        return
+    
     while True:
-        status = input("task completion, enter: success or failed: ").strip().upper()
+        status = input("Task completion (SUCCESS/FAILED): ").strip().upper()
         if status in ['SUCCESS', 'FAILED']:
             break
-        
         print("Invalid input. Please enter 'SUCCESS' or 'FAILED'.")
     
-    comment = input("Enter any comments about the task completion: ").strip()
-    finish_at = datetime.now()
+    comment = input("Enter comments: ").strip()
     
-    table.remove(task)
-    # update task status, comment, finished_at
-    task = task._replace(status=status, comment=comment, finished_at=finish_at)
-    done.append(task)
+    updated_task = task._replace(
+        status=status,
+        finished_at=get_date()
+    )
+    dict_tasks[task_id] = updated_task
     
-    print("Task finished successfully!")
-    return (task.uri, task)
+    history[task_id].append(Entry(
+        date=get_date(),
+        action='COMPLETED',
+        activity=f"Task marked as {status}. Comment: {comment}"
+    ))
+    
+    print(f"\n✓ Task {task_id} finished as {status}!")
 
+@tabulate_print
+def view_tasks():
+    """Ver todas las tareas con filtro opcional"""
+    print("\nFilter options: ALL, IN PROGRESS, DONE, SUCCESS, FAILED")
+    status_filter = input("Enter filter (or press Enter for ALL): ").strip().upper() or "ALL"
+    
+    if status_filter == "ALL":
+        return list(dict_tasks.values())
+    elif status_filter == "IN PROGRESS":
+        return [t for t in dict_tasks.values() if t.status == "IN PROGRESS"]
+    elif status_filter == "DONE":
+        return [t for t in dict_tasks.values() if t.status in ("SUCCESS", "FAILED")]
+    elif status_filter == "SUCCESS":
+        return [t for t in dict_tasks.values() if t.status == "SUCCESS"]
+    elif status_filter == "FAILED":
+        return [t for t in dict_tasks.values() if t.status == "FAILED"]
+    else:
+        print("Invalid filter. Showing all tasks.")
+        return list(dict_tasks.values())
+
+@tabulate_print
+def view_history():
+    """Ver historial de una tarea"""
+    task_id = int(input("Enter task ID to view history: "))
+    if not find_task(task_id):
+        return None
+    
+    return history[task_id] if history[task_id] else []
+
+def exit_app():
+    """Guardar y salir"""
+    print("\nSaving data...")
+    save_csv()
+    
+    for task_id in history.keys():
+        if history[task_id]:
+            save_history(task_id)
+    
+    print("✓ Data saved successfully. Goodbye!")
+    sys.exit(0)
+
+# Menú principal
 def main():
-    """
-    Main function to run the TODO list application.
-    """
-    # 
-    command = Command(exit=lambda: sys.exit(0), 
-                  add=add_task, 
-                  update=lambda: update_task(int(input("Enter task ID to update: "))), 
-                  view=view_tasks, 
-                  drop=lambda: finish_task(int(input("Enter task ID to finish: "))),
-                  history=lambda: view_history(int(input("Enter task ID to view history: "))), 
-                  entry=lambda: entry_task(int(input("Enter task ID for entry: ")))
-                  )
+    """Función principal"""
+    global dict_tasks
+    
+    # Cargar datos existentes
+    os.makedirs(FOLDER, exist_ok=True)
+    dict_tasks = load_csv()
+    
+    # Cargar historiales
+    for task_id in dict_tasks.keys():
+        loaded_history = load_history(task_id)
+        if loaded_history:
+            history[task_id] = loaded_history
+    
+    # Menú de opciones
+    options = {
+        '1': ('Add task', add_task),
+        '2': ('Update task', update_task),
+        '3': ('View tasks', view_tasks),
+        '4': ('Finalize task', finalize_task),
+        '5': ('Add entry', add_entry),
+        '6': ('View history', view_history),
+        '7': ('Save and exit', exit_app)
+    }
     
     while True:
-        print("\n" + "="*60)
-        print("TODO LIST - Options: add, update, view, drop, entry, history, exit")
-        print("="*60)
-        action = input("Select action: ").strip().lower()
-        if hasattr(command, action):
+        print("\n" + "="*70)
+        print("TODO LIST APPLICATION")
+        print("="*70)
+        for key, (description, _) in options.items():
+            print(f"  {key} --> {description}")
+        print("="*70)
+        
+        action = input("Select action (1-7): ").strip()
+        
+        if action in options:
             try:
-                getattr(command, action)()
+                _, func = options[action]
+                func()
             except ValueError:
-                print("Invalid ID format.")
+                logging.warning("Invalid input format.")
+            except KeyboardInterrupt:
+                print("\n\nInterrupted by user.")
+                exit_app()
             except Exception as e:
-                print(f"An error occurred: {e}")
+                logging.error(f"An error occurred: {e}")
         else:
-            print("Invalid action. Please try again.")
+            print("Invalid option. Please select 1-7.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nExiting...")
+        exit_app()
