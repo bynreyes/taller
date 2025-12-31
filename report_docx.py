@@ -4,13 +4,13 @@ task.csv
 
 """
 
-import yaml
 from docxtpl import DocxTemplate, RichText
 from datetime import datetime
-import csv
-import logging
 from pathlib import Path
 from typing import List, Dict, Any
+import csv
+import yaml
+import logging
 
 # Configurar logging al inicio
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -32,7 +32,7 @@ def load_yaml(yaml_path: str) -> List[Dict[str, Any]]:
         return []
 
 def load_csv(folder_path: str = FOLDER) -> List[Dict[str, Any]]:
-    """Carga tareas desde CSV (igual que antes)"""
+    """Carga tareas desde CSV"""
     file_path = Path(folder_path) / "tasks.csv"
     tasks_list: List[Dict[str, Any]] = []
     
@@ -59,19 +59,34 @@ def load_csv(folder_path: str = FOLDER) -> List[Dict[str, Any]]:
     
     return tasks_list
 
+def stats(data: List[Dict[str, Any]]):
+    # Calcular estadísticas
+    if actividades:
+        dates = [datetime.fromisoformat(act['date']) for act in data]
+        if dates:
+            start_date = min(dates)
+            end_date = max(dates)
+            
+    return {
+        'total_activities': len(actividades),
+        'days_active': (end_date - start_date),
+        'last_update': end_date.strftime("%d/%m/%Y")
+    }
+
 def generate_reports(task: Dict[str, Any], 
                      actividades: List[Dict[str, Any]],
+                     stats_dict: Dict[str, Any],
                      template_path: str = f"{FOLDER}/template.docx",
                      output_folder: str = "reports"
                      ):
     """Genera reportes de Word para cada tarea"""
     if not tasks:
         logging.info("No hay tareas para generar reportes")
-        return 
-    
+        return
+
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
-   
+
     lista_rt = RichText()  # Crear RichText con la lista de actividades
     for idx, act in enumerate(actividades, 1):
         # Formato: "1. [2025-12-29] instalar git (linux/windows/mac)"
@@ -86,6 +101,9 @@ def generate_reports(task: Dict[str, Any],
         context['lista_actividades'] = lista_rt  # Para Opción 1 {{r lista_actividades}}
         context['actividades'] = actividades     # Para Opción 2 
         context['date_now'] = DATE_NOW
+        context['total_activities'] = stats_dict['total_activities']
+        context['days_active'] = stats_dict['days_active']
+        context['last_update'] = stats_dict['last_update']
         
         template.render(context)
         
@@ -102,8 +120,9 @@ def generate_reports(task: Dict[str, Any],
         logging.error(f"Error generando reporte: {e}")
 
 if __name__ == "__main__":
-    tasks = load_csv()
+    tasks = load_csv() # lista de diccionarios
     for task in tasks:
         uri, data = task['uri'], task
         actividades = load_yaml(f"tasks/{uri}.yaml")
-        generate_reports(data, actividades)
+        stats_dict = stats(actividades)
+        generate_reports(data, actividades, stats_dict)
