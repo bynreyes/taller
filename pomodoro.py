@@ -11,14 +11,14 @@ import time
 from plyer import notification
 
 # data structure
-Lapse = namedtuple('Lapse', 'duration message name')
+Lapse = namedtuple('Lapse', 'duration message name') # sound, gift,  ...
 Cycle = namedtuple('Cycle', 'work pause name')
 
 # constantes
 # Options to keep in mind here are: @dataclass, namedtuple, enum type
 # def set_values(*args):
 #     ...
-WORK, SHORT_TIME, LONG_TIME, DISPLAY, CYCLES = (20, 5, 20, 5, 4)
+WORK, SHORT_TIME, LONG_TIME, DISPLAY, CYCLES = (40*60, 5*60, 20*60, 10, 4)
 
 # set values
 work_duration = Lapse(WORK, 'tlabaja, tienes que tlabaja!!', 'work time')
