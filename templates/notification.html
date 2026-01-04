@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block header %}
+Notificación
+{% endblock %}
+
+{% block content %}
+<div class="alert">
+    <div class="alert-title">{{ title }}</div>
+    <p>{{ content }}</p>
+    {% if items %}
+    <ul>
+        {% for item in items %}
+        <li>{{ item }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endblock %}
